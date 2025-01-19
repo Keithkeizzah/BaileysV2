@@ -184,25 +184,24 @@ async function promiseTimeout(ms, promise) {
 exports.promiseTimeout = promiseTimeout;
 
 const generateMessageIDV2 = (userId) => {
-  const data = Buffer.alloc(8 + 20 + 16);
-  data.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 1000)));
-  if (userId) {
-    const id = (0, WABinary_1.jidDecode)(userId);
-    if (id === null || id === void 0 ? void 0 : id.user) {
-      data.write(id.user, 8);
-      data.write('@c.us', 8 + id.user.length);
+    const data = Buffer.alloc(8 + 20 + 16);
+    data.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 1000)));
+    if (userId) {
+        const id = (0, WABinary_1.jidDecode)(userId);
+        if (id === null || id === void 0 ? void 0 : id.user) {
+            data.write(id.user, 8);
+            data.write('@c.us', 8 + id.user.length);
+        }
     }
-  }
-  const random = (0, crypto_1.randomBytes)(16);
-  random.copy(data, 28);
-  const hash = (0, crypto_1.createHash)('sha256').update(data).digest();
-  return 'FizzxyTheGreat-' + hash.toString('hex').toUpperCase().substring(0, 18);
+    const random = (0, crypto_1.randomBytes)(16);
+    random.copy(data, 28);
+    const hash = (0, crypto_1.createHash)('sha256').update(data).digest();
+    return 'FizzxyTheGreat-' + hash.toString('hex').toUpperCase().substring(0, 18);
 };
 exports.generateMessageIDV2 = generateMessageIDV2;
 
 // generate a random ID to attach to a message
 const generateMessageID = () => 'FizzxyTheGreat-' + (0, crypto_1.randomBytes)(6).toString('hex').toUpperCase();
-
 exports.generateMessageID = generateMessageID;
 
 function bindWaitForEvent(ev, event) {
