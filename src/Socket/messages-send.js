@@ -12,10 +12,23 @@ const Utils_1 = require("../Utils");
 const link_preview_1 = require("../Utils/link-preview");
 const WABinary_1 = require("../WABinary");
 const newsletter_1 = require("./newsletter");
+var ListType = WAProto_1.proto.Message.ListMessage.ListType;
 const makeMessagesSocket = (config) => {
     const { logger, linkPreviewImageThumbnailWidth, generateHighQualityLinkPreview, options: axiosOptions, patchMessageBeforeSending, cachedGroupMetadata, } = config;
     const sock = (0, newsletter_1.makeNewsletterSocket)(config);
     const { ev, authState, processingMutex, signalRepository, upsertMessage, query, fetchPrivacySettings, generateMessageTag, sendNode, groupMetadata, groupToggleEphemeral, } = sock;
+    const patchMessageRequiresBeforeSending = (msg, recipientJids) => {
+        var _a, _b;
+        if ((_b = (_a = msg === null || msg === void 0 ? void 0 : msg.deviceSentMessage) === null || _a === void 0 ? void 0 : _a.message) === null || _b === void 0 ? void 0 : _b.listMessage) {
+            msg = JSON.parse(JSON.stringify(msg));
+            msg.deviceSentMessage.message.listMessage.listType = WAProto_1.proto.Message.ListMessage.ListType.SINGLE_SELECT;
+        }
+        if (msg === null || msg === void 0 ? void 0 : msg.listMessage) {
+            msg = JSON.parse(JSON.stringify(msg));
+            msg.listMessage.listType = WAProto_1.proto.Message.ListMessage.ListType.SINGLE_SELECT;
+        }
+        return msg;
+    };
     const userDevicesCache = config.userDevicesCache || new node_cache_1.default({
         stdTTL: Defaults_1.DEFAULT_CACHE_TTLS.USER_DEVICES,
         useClones: false
@@ -221,31 +234,10 @@ const makeMessagesSocket = (config) => {
         }
         return didFetchNewSession;
     };
-    const sendPeerDataOperationMessage = async (pdoMessage) => {
-        var _a;
-        //TODO: for later, abstract the logic to send a Peer Message instead of just PDO - useful for App State Key Resync with phone
-        if (!((_a = authState.creds.me) === null || _a === void 0 ? void 0 : _a.id)) {
-            throw new boom_1.Boom('Not authenticated');
-        }
-        const protocolMessage = {
-            protocolMessage: {
-                peerDataOperationRequestMessage: pdoMessage,
-                type: WAProto_1.proto.Message.ProtocolMessage.Type.PEER_DATA_OPERATION_REQUEST_MESSAGE
-            }
-        };
-        const meJid = (0, WABinary_1.jidNormalizedUser)(authState.creds.me.id);
-        const msgId = await relayMessage(meJid, protocolMessage, {
-            additionalAttributes: {
-                category: 'peer',
-                // eslint-disable-next-line camelcase
-                push_priority: 'high_force',
-            },
-        });
-        return msgId;
-    };
     const createParticipantNodes = async (jids, message, extraAttrs) => {
         const patched = await patchMessageBeforeSending(message, jids);
-        const bytes = (0, Utils_1.encodeWAMessage)(patched);
+        const requiredPatched = patchMessageRequiresBeforeSending(patched, jids);
+        const bytes = (0, Utils_1.encodeWAMessage)(requiredPatched);
         let shouldIncludeDeviceIdentity = false;
         const nodes = await Promise.all(jids.map(async (jid) => {
             const { type, ciphertext } = await signalRepository
@@ -270,17 +262,18 @@ const makeMessagesSocket = (config) => {
         }));
         return { nodes, shouldIncludeDeviceIdentity };
     };
-    const relayMessage = async (jid, message, { messageId: msgId, participant, additionalAttributes, additionalNodes, useUserDevicesCache, useCachedGroupMetadata, statusJidList }) => {
+    const relayMessage = async (jid, message, { messageId: msgId, participant, additionalAttributes, useUserDevicesCache, useCachedGroupMetadata, statusJidList, additionalNodes }) => {
         var _a;
         const meId = authState.creds.me.id;
         let shouldIncludeDeviceIdentity = false;
         const { user, server } = (0, WABinary_1.jidDecode)(jid);
         const statusJid = 'status@broadcast';
         const isGroup = server === 'g.us';
+        const isPrivate = server === 's.whatsapp.net';
         const isNewsletter = server == 'newsletter';
         const isStatus = jid === statusJid;
         const isLid = server === 'lid';
-        msgId = msgId || (0, Utils_1.generateMessageID)((_a = sock.user) === null || _a === void 0 ? void 0 : _a.id);
+        msgId = msgId || (0, Utils_1.generateMessageIDV2)((_a = sock.user) === null || _a === void 0 ? void 0 : _a.id);
         useUserDevicesCache = useUserDevicesCache !== false;
         useCachedGroupMetadata = useCachedGroupMetadata !== false && !isStatus;
         const participants = [];
@@ -304,7 +297,7 @@ const makeMessagesSocket = (config) => {
             devices.push({ user, device });
         }
         await authState.keys.transaction(async () => {
-            var _a, _b, _c, _d, _e, _f;
+            var _a, _b, _c, _d, _e, _f, _g, _h, _j, _k, _l, _m;
             const mediaType = getMediaType(message);
             if (isGroup || isStatus) {
                 const [groupData, senderKeyMap] = await Promise.all([
@@ -335,7 +328,8 @@ const makeMessagesSocket = (config) => {
                     devices.push(...additionalDevices);
                 }
                 const patched = await patchMessageBeforeSending(message, devices.map(d => (0, WABinary_1.jidEncode)(d.user, isLid ? 'lid' : 's.whatsapp.net', d.device)));
-                const bytes = (0, Utils_1.encodeWAMessage)(patched);
+                const requiredPatched = await patchMessageRequiresBeforeSending(patched, devices.map(d => (0, WABinary_1.jidEncode)(d.user, isLid ? 'lid' : 's.whatsapp.net', d.device)));
+                const bytes = (0, Utils_1.encodeWAMessage)(requiredPatched);
                 const { ciphertext, senderKeyDistributionMessage } = await signalRepository.encryptGroupMessage({
                     group: destinationJid,
                     data: bytes,
@@ -469,44 +463,64 @@ const makeMessagesSocket = (config) => {
                 });
                 logger.debug({ jid }, 'adding device identity');
             }
+            
+            if (!isNewsletter) {
+                if (message?.interactiveMessage?.nativeFlowMessage || message?.buttonsMessage) {
+                    if (!stanza.content || !Array.isArray(stanza.content)) {
+                        stanza.content = [];
+                    }
+                    stanza.content.push({
+                        tag: 'biz',
+                        attrs: {},
+                        content: [{
+                                tag: 'interactive',
+                                attrs: {
+                                    type: 'native_flow',
+                                    v: '1'
+                                },
+                                content: [{
+                                        tag: 'native_flow',
+                                        attrs: { name: 'quick_reply' }
+                                    }]
+                            }]
+                    });
+                }
+                
+                if (message?.listMessage) {
+                    if (!stanza.content || !Array.isArray(stanza.content)) {
+                        stanza.content = [];
+                    }
+                    stanza.content.push({
+                        tag: 'biz',
+                        attrs: {},
+                        content: [{
+                                tag: 'list',
+                                attrs: {
+                                    type: 'native_flow',
+                                    v: '1'
+                                },
+                                content: [{
+                                        tag: 'native_flow',
+                                        attrs: { name: 'quick_reply' }
+                                    }]
+                            }]
+                    });
+                }
+            }
+            
             if (additionalNodes && additionalNodes.length > 0) {
+                if (!stanza.content || !Array.isArray(stanza.content)) {
+                    stanza.content = [];
+                }
                 stanza.content.push(...additionalNodes);
             }
-            if (!isNewsletter) {                              
-                if (message?.viewOnceMessage || message?.viewOnceMessageV2 || message?.viewOnceMessageV2Extension || message?.ephemeralMessage || message?.templateMessage || message?.listMessage || message?.interactiveMessage || message?.buttonsMessage) {		
-					if(!stanza.content || !Array.isArray(stanza.content)) {
-						stanza.content = []
-					}
-					stanza.content.push({
-						tag: 'biz',
-						attrs: {},
-						content: [{
-							tag: 'interactive',
-							attrs: {
-								type: 'native_flow',
-								v: '1'
-							},
-							content: [{
-								tag: 'native_flow',
-								attrs: { name: 'quick_reply' }
-							}]
-						}]
-					})
-	 	        }	         
-       	   }
-	        const buttonType = getButtonType(message);
-            if (buttonType) {
-                stanza.content.push({
-                    tag: 'biz',
-                    attrs: {},
-                    content: [
-                        {
-                            tag: buttonType,
-                            attrs: getButtonArgs(message),
-                        }
-                    ]
-                });
-                logger.debug({ jid }, 'adding business node');
+            
+            if (isPrivate && !additionalNodes) {
+                if (!stanza.content || !Array.isArray(stanza.content)) {
+                    stanza.content = [];
+                }
+                    const botsChat = [ { attrs: { biz_bot: '1' }, tag: 'bot' }]
+                    stanza.content.push(...botsChat);
             }
             logger.debug({ msgId }, `sending message to ${participants.length} devices`);
             await sendNode(stanza);
@@ -523,17 +537,8 @@ const makeMessagesSocket = (config) => {
         else if (msg.viewOnceMessageV2Extension) {
             return getTypeMessage(msg.viewOnceMessageV2Extension.message);
         }
-        else if (msg.botInvokeMessage) {
-        	return getTypeMessage(msg.botInvokeMessage.message);
-        }
         else if (msg.ephemeralMessage) {
             return getTypeMessage(msg.ephemeralMessage.message);
-        }
-        else if (msg.lottieStickerMessage) {
-        	return getTypeMessage(msg.lottieStickerMessage.message);
-        }
-        else if (msg.groupMentionedMessage) {
-        	return getTypeMessage(msg.groupMentionedMessage.message);
         }
         else if (msg.documentWithCaptionMessage) {
             return getTypeMessage(msg.documentWithCaptionMessage.message);
@@ -542,7 +547,7 @@ const makeMessagesSocket = (config) => {
             return 'reaction';
         }
         else if (msg.pollCreationMessage || msg.pollCreationMessageV2 || msg.pollCreationMessageV3 || msg.pollUpdateMessage) {
-            return 'poll';
+            return 'reaction';
         }
         else if (getMediaType(msg)) {
             return 'media';
@@ -582,17 +587,8 @@ const makeMessagesSocket = (config) => {
         else if (message.listResponseMessage) {
             return 'list_response';
         }
-        else if (message.buttonsMessage) {
-        	return 'buttons';
-        }
         else if (message.buttonsResponseMessage) {
             return 'buttons_response';
-        }
-        else if (message.templateMessage) {
-            return 'template';
-        }
-        else if (message.templateButtonReplyMessage) {
-        	return 'template_response'
         }
         else if (message.orderMessage) {
             return 'order';
@@ -602,9 +598,6 @@ const makeMessagesSocket = (config) => {
         }
         else if (message.interactiveResponseMessage) {
             return 'native_flow_response';
-        }
-        else if (message.groupInviteMessage) {
-            return 'url';
         }
     };
     const getButtonType = (message) => {
@@ -623,23 +616,18 @@ const makeMessagesSocket = (config) => {
         else if (message.listResponseMessage) {
             return 'list_response';
         }
-        else if (message.templateMessage) {
-            return 'template';
-        }
-        else if (message.templateButtonReplyMessage) {
-        	return 'template_response'
-        }
     };
     const getButtonArgs = (message) => {
         if (message.templateMessage) {
-            return { v: '1', type: 'template'}
+            // TODO: Add attributes
+            return {};
         }
         else if (message.listMessage) {
             const type = message.listMessage.listType;
             if (!type) {
                 throw new boom_1.Boom('Expected list type inside message');
             }
-            return { v: '2', type: 'single_select' };
+            return { v: '2', type: ListType[type].toLowerCase() };
         }
         else {
             return {};
@@ -671,25 +659,6 @@ const makeMessagesSocket = (config) => {
         });
         return result;
     };
-    const sendMessageToNewsletter = async (jid, text, options = {}) => {
-        const messages = {  
-           extendedTextMessage: {
-           text: text,
-            ...options
-           }     
-         }
-        const messageToChannel = WAProto_1.proto.Message.encode(messages).finish()
-        const result = {
-     	tag: 'message',
-     	attrs: { to: jid, type: 'text' },
-         	content: [{
-             tag: 'plaintext',
-         	attrs: {},
-         	content: messageToChannel
-          }]
-        };
-       return await query(result)
-    };
     const waUploadToServer = (0, Utils_1.getWAUploadToServer)(config, refreshMediaConn);
     const waitForMsgMediaUpdate = (0, Utils_1.bindWaitForEvent)(ev, 'messages.media-update');
     return {
@@ -698,19 +667,14 @@ const makeMessagesSocket = (config) => {
         assertSessions,
         relayMessage,
         sendReceipt,
-        sendReceipts, 
-        getMediaType,
-        getButtonType, 
+        sendReceipts,
         getButtonArgs,
-        readMessages, 
-        getTypeMessage, 
+        readMessages,
         refreshMediaConn,
         waUploadToServer,
         fetchPrivacySettings,
         getUSyncDevices,
         createParticipantNodes,
-        sendMessageToNewsletter, 
-        sendPeerDataOperationMessage, 
         updateMediaMessage: async (message) => {
             const content = (0, Utils_1.assertMediaContent)(message.message);
             const mediaKey = content.mediaKey;
@@ -788,67 +752,35 @@ const makeMessagesSocket = (config) => {
                     },
                     mediaCache: config.mediaCache,
                     options: config.options,
-                    messageId: (0, Utils_1.generateMessageID)((_a = sock.user) === null || _a === void 0 ? void 0 : _a.id),
+                    messageId: (0, Utils_1.generateMessageIDV2)((_a = sock.user) === null || _a === void 0 ? void 0 : _a.id),
                     ...options,
                 });
-                const isAi = 'ai' in content && !!content.ai;
-                const isPin = 'pin' in content && !!content.pin;
-                const isPoll = 'poll' in content && !!content.poll;
-                const isEdit = 'edit' in content && !!content.edit;
-                const isDelete = 'delete' in content && !!content.delete;                
-                const isButtons = 'buttons' in content && !!content.buttons;
-                const isButtonsList = 'sections' in content && !!content.sections;
-                const isButtonsTemplate = 'templateButtons' in content && !!content.templateButtons;                                                      
-                const isInteractiveButtons = 'interactiveButtons' in content && !!content.interactiveButtons;
+                const isDeleteMsg = 'delete' in content && !!content.delete;
+                const isEditMsg = 'edit' in content && !!content.edit;
                 const additionalAttributes = {};
-                const additionalNodes = [];               
-                if (isDelete) {
+                // required for delete
+                if (isDeleteMsg) {
                     // if the chat is a group, and I am not the author, then delete the message as an admin
-                    if (WABinary_1.isJidGroup(content.delete?.remoteJid) && !content.delete?.fromMe) {
+                    if (((0, WABinary_1.isJidGroup)((_b = content.delete) === null || _b === void 0 ? void 0 : _b.remoteJid) && !((_c = content.delete) === null || _c === void 0 ? void 0 : _c.fromMe)) || (0, WABinary_1.isJidNewsletter)(jid)) {
                         additionalAttributes.edit = '8';
                     }
                     else {
                         additionalAttributes.edit = '7';
                     }
                 }
-                else if (isEdit) {
-                    additionalAttributes.edit = '1';
-                }
-                else if (isPin) {
-                    additionalAttributes.edit = '2';
-                }
-                else if (isButtons) {
-                }
-                else if (isButtonsList) {
-                }
-                else if (isButtonsTemplate) {
-                }
-                else if (isInteractiveButtons) {
-                }
-                else if (isAi) {
-                    additionalNodes.push(
-                     { attrs: { biz_bot: "1" }, tag: "bot" },
-                     { attrs: {}, tag: "biz" }
-                  );
-                }
-                else if (isPoll) {
-                    additionalNodes.push({
-                        tag: 'meta',
-                        attrs: {
-                            polltype: 'creation'
-                        },
-                    });
+                else if (isEditMsg) {
+                    additionalAttributes.edit = (0, WABinary_1.isJidNewsletter)(jid) ? '3' : '1';
                 }
                 if (mediaHandle) {
                     additionalAttributes['media_id'] = mediaHandle;
-                }                
+                }
                 if ('cachedGroupMetadata' in options) {
                     console.warn('cachedGroupMetadata in sendMessage are deprecated, now cachedGroupMetadata is part of the socket config.');
                 }
-                await relayMessage(jid, fullMsg.message, { messageId: fullMsg.key.id, cachedGroupMetadata: options.cachedGroupMetadata, additionalNodes: isAi ? additionalNodes : options.additionalNodes, additionalAttributes, statusJidList: options.statusJidList });
+                await relayMessage(jid, fullMsg.message, { messageId: fullMsg.key.id, useCachedGroupMetadata: options.useCachedGroupMetadata, additionalAttributes, statusJidList: options.statusJidList, additionalNodes: options.additionalNodes });
                 if (config.emitOwnEvents) {
                     process.nextTick(() => {
-                       processingMutex.mutex(() => (upsertMessage(fullMsg, 'append')));
+                        processingMutex.mutex(() => (upsertMessage(fullMsg, 'append')));
                     });
                 }
                 return fullMsg;

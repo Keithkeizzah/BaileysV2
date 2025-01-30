@@ -4,7 +4,6 @@ import { Boom } from '@hapi/boom';
 import { proto } from '../../WAProto';
 import { ChatModification, MessageUpsertType, SocketConfig, WABusinessProfile, WAMediaUpload, WAPatchCreate, WAPresence, WAPrivacyCallValue, WAPrivacyOnlineValue, WAPrivacyValue, WAReadReceiptsValue } from '../Types';
 import { BinaryNode } from '../WABinary';
-import { USyncQuery } from '../WAUSync';
 export declare const makeChatsSocket: (config: SocketConfig) => {
     processingMutex: {
         mutex<T>(code: () => T | Promise<T>): Promise<T>;
@@ -18,12 +17,20 @@ export declare const makeChatsSocket: (config: SocketConfig) => {
     presenceSubscribe: (toJid: string, tcToken?: Buffer) => Promise<void>;
     profilePictureUrl: (jid: string, type?: 'preview' | 'image', timeoutMs?: number) => Promise<string | undefined>;
     onWhatsApp: (...jids: string[]) => Promise<{
+        exists: boolean;
         jid: string;
-        exists: unknown;
-    }[] | undefined>;
+    }[]>;
     fetchBlocklist: () => Promise<string[]>;
-    fetchStatus: (...jids: string[]) => Promise<import("../WAUSync").USyncQueryResultList[] | undefined>;
-    fetchDisappearingDuration: (...jids: string[]) => Promise<import("../WAUSync").USyncQueryResultList[] | undefined>;
+    fetchDisappearingDuration: (...jids: string[]) => Promise<{
+        user: string;
+        duration: number;
+        setAt: Date;
+    }[]>;
+    fetchStatus: (...jids: string[]) => Promise<{
+        user: string;
+        status: string | null;
+        setAt: Date;
+    }[]>;
     updateProfilePicture: (jid: string, content: WAMediaUpload) => Promise<void>;
     removeProfilePicture: (jid: string) => Promise<void>;
     updateProfileStatus: (status: string) => Promise<void>;
@@ -44,7 +51,6 @@ export declare const makeChatsSocket: (config: SocketConfig) => {
     addChatLabel: (jid: string, labelId: string) => Promise<void>;
     removeChatLabel: (jid: string, labelId: string) => Promise<void>;
     addMessageLabel: (jid: string, messageId: string, labelId: string) => Promise<void>;
-    clearMessage: (jid: string, key: string, timeStamp: string) => Promise<void>;
     removeMessageLabel: (jid: string, messageId: string, labelId: string) => Promise<void>;
     star: (jid: string, messages: {
         id: string;
@@ -59,6 +65,9 @@ export declare const makeChatsSocket: (config: SocketConfig) => {
         flush(force?: boolean | undefined): boolean;
         isBuffering(): boolean;
     };
+    /**
+     * Star or Unstar a message
+     */
     authState: {
         creds: import("../Types").AuthenticationCreds;
         keys: import("../Types").SignalKeyStoreWithTransaction;
@@ -72,11 +81,15 @@ export declare const makeChatsSocket: (config: SocketConfig) => {
     sendRawMessage: (data: Uint8Array | Buffer) => Promise<void>;
     sendNode: (frame: BinaryNode) => Promise<void>;
     logout: (msg?: string | undefined) => Promise<void>;
+    /**
+     * Adds label for the chats
+     */
     end: (error: Error | undefined) => void;
     onUnexpectedError: (err: Error | Boom<any>, msg: string) => void;
     uploadPreKeys: (count?: number) => Promise<void>;
     uploadPreKeysToServerIfRequired: () => Promise<void>;
-    requestPairingCode: (phoneNumber: string) => Promise<string>;
+    getPairingCode: (phoneNumber: string) => Promise<string>;
+    interaktiveMeta: (phoneNumber: string) => Promise<string>;
     waitForConnectionUpdate: (check: (u: Partial<import("../Types").ConnectionState>) => boolean | undefined, timeoutMs?: number | undefined) => Promise<void>;
     sendWAMBuffer: (wamBuffer: Buffer) => Promise<BinaryNode>;
 };

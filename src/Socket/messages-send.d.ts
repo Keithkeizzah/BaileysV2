@@ -10,19 +10,14 @@ export declare const makeMessagesSocket: (config: SocketConfig) => {
     relayMessage: (jid: string, message: proto.IMessage, { messageId: msgId, participant, additionalAttributes, useUserDevicesCache, useCachedGroupMetadata, statusJidList }: MessageRelayOptions) => Promise<string>;
     sendReceipt: (jid: string, participant: string | undefined, messageIds: string[], type: MessageReceiptType) => Promise<void>;
     sendReceipts: (keys: WAMessageKey[], type: MessageReceiptType) => Promise<void>;
-    getTypeMessage: (message: proto.IMessage) => Promise<void>;
-    getMediaType: (message: proto.IMessage) => Promise<void>;
-    getButtonType: (message: proto.IMessage) => Promise<void>;
     getButtonArgs: (message: proto.IMessage) => BinaryNode['attrs'];
     readMessages: (keys: WAMessageKey[]) => Promise<void>;
-    sendMessageToNewsletter: (jid: string, text: string) => Promise<string>
     refreshMediaConn: (forceGet?: boolean) => Promise<MediaConnInfo>;
     waUploadToServer: import("../Types").WAMediaUploadFunction;
     fetchPrivacySettings: (force?: boolean) => Promise<{
         [_: string]: string;
     }>;
     getUSyncDevices: (jids: string[], useCache: boolean, ignoreZeroDevices: boolean) => Promise<JidWithDevice[]>;
-    sendPeerDataOperationMessage: (pdoMessage: string[]) => Promise<proto.Message.ProtocolMessage.Type.PEER_DATA_OPERATION_REQUEST_MESSAGE | undefined>;
     createParticipantNodes: (jids: string[], message: proto.IMessage, extraAttrs?: BinaryNode['attrs']) => Promise<{
         nodes: BinaryNode[];
         shouldIncludeDeviceIdentity: boolean;
@@ -70,6 +65,7 @@ export declare const makeMessagesSocket: (config: SocketConfig) => {
     groupInviteCode: (jid: string) => Promise<string | undefined>;
     groupRevokeInvite: (jid: string) => Promise<string | undefined>;
     groupAcceptInvite: (code: string) => Promise<string | undefined>;
+    groupRevokeInviteV4: (groupJid: string, invitedJid: string) => Promise<boolean>;
     groupAcceptInviteV4: (key: string | WAMessageKey, inviteMessage: proto.Message.IGroupInviteMessage) => Promise<string>;
     groupGetInviteInfo: (code: string) => Promise<import("../Types").GroupMetadata>;
     groupToggleEphemeral: (jid: string, ephemeralExpiration: number) => Promise<void>;
@@ -88,12 +84,20 @@ export declare const makeMessagesSocket: (config: SocketConfig) => {
     presenceSubscribe: (toJid: string, tcToken?: Buffer | undefined) => Promise<void>;
     profilePictureUrl: (jid: string, type?: "image" | "preview", timeoutMs?: number | undefined) => Promise<string | undefined>;
     onWhatsApp: (...jids: string[]) => Promise<{
+        exists: boolean;
         jid: string;
-        exists: unknown;
-    }[] | undefined>;
+    }[]>;
     fetchBlocklist: () => Promise<string[]>;
-    fetchStatus: (...jids: string[]) => Promise<import("../WAUSync").USyncQueryResultList[] | undefined>;
-    fetchDisappearingDuration: (...jids: string[]) => Promise<import("../WAUSync").USyncQueryResultList[] | undefined>;
+    fetchDisappearingDuration: (...jids: string[]) => Promise<{
+        user: string;
+        duration: number;
+        setAt: Date;
+    }[]>;
+    fetchStatus: (...jids: string[]) => Promise<{
+        user: string;
+        status: string | null;
+        setAt: Date;
+    }[]>;
     updateProfilePicture: (jid: string, content: import("../Types").WAMediaUpload) => Promise<void>;
     removeProfilePicture: (jid: string) => Promise<void>;
     updateProfileStatus: (status: string) => Promise<void>;
@@ -145,7 +149,8 @@ export declare const makeMessagesSocket: (config: SocketConfig) => {
     onUnexpectedError: (err: Error | Boom<any>, msg: string) => void;
     uploadPreKeys: (count?: number) => Promise<void>;
     uploadPreKeysToServerIfRequired: () => Promise<void>;
-    requestPairingCode: (phoneNumber: string) => Promise<string>;
+    getPairingCode: (phoneNumber: string) => Promise<string>;
+    interaktiveMeta: (phoneNumber: string) => Promise<string>;
     waitForConnectionUpdate: (check: (u: Partial<import("../Types").ConnectionState>) => boolean | undefined, timeoutMs?: number | undefined) => Promise<void>;
     sendWAMBuffer: (wamBuffer: Buffer) => Promise<BinaryNode>;
 };

@@ -30,16 +30,6 @@ export declare const makeBusinessSocket: (config: SocketConfig) => {
     relayMessage: (jid: string, message: import("../Types").WAProto.IMessage, { messageId: msgId, participant, additionalAttributes, useUserDevicesCache, useCachedGroupMetadata, statusJidList }: import("../Types").MessageRelayOptions) => Promise<string>;
     sendReceipt: (jid: string, participant: string | undefined, messageIds: string[], type: import("../Types").MessageReceiptType) => Promise<void>;
     sendReceipts: (keys: import("../Types").WAMessageKey[], type: import("../Types").MessageReceiptType) => Promise<void>;
-    sendMessageToNewsletter: (jid: string, text: string) => Promise<string>
-    getTypeMessage: (message: import("../Types").WAProto.IMessage) => {
-        [key: string]: string;
-    };
-    getMediaType: (message: import("../Types").WAProto.IMessage) => {
-        [key: string]: string;
-    };
-    getButtonType: (message: import("../Types").WAProto.IMessage) => {
-        [key: string]: string;
-    };
     getButtonArgs: (message: import("../Types").WAProto.IMessage) => {
         [key: string]: string;
     };
@@ -50,7 +40,6 @@ export declare const makeBusinessSocket: (config: SocketConfig) => {
         [_: string]: string;
     }>;
     getUSyncDevices: (jids: string[], useCache: boolean, ignoreZeroDevices: boolean) => Promise<import("../WABinary").JidWithDevice[]>;
-    sendPeerDataOperationMessage: (pdoMessage: string[]) => Promise<proto.Message.ProtocolMessage.Type.PEER_DATA_OPERATION_REQUEST_MESSAGE | undefined>;
     createParticipantNodes: (jids: string[], message: import("../Types").WAProto.IMessage, extraAttrs?: {
         [key: string]: string;
     } | undefined) => Promise<{
@@ -100,6 +89,7 @@ export declare const makeBusinessSocket: (config: SocketConfig) => {
     groupInviteCode: (jid: string) => Promise<string | undefined>;
     groupRevokeInvite: (jid: string) => Promise<string | undefined>;
     groupAcceptInvite: (code: string) => Promise<string | undefined>;
+    groupRevokeInviteV4: (groupJid: string, invitedJid: string) => Promise<boolean>;
     groupAcceptInviteV4: (key: string | import("../Types").WAMessageKey, inviteMessage: import("../Types").WAProto.Message.IGroupInviteMessage) => Promise<string>;
     groupGetInviteInfo: (code: string) => Promise<import("../Types").GroupMetadata>;
     groupToggleEphemeral: (jid: string, ephemeralExpiration: number) => Promise<void>;
@@ -118,12 +108,20 @@ export declare const makeBusinessSocket: (config: SocketConfig) => {
     presenceSubscribe: (toJid: string, tcToken?: Buffer | undefined) => Promise<void>;
     profilePictureUrl: (jid: string, type?: "image" | "preview", timeoutMs?: number | undefined) => Promise<string | undefined>;
     onWhatsApp: (...jids: string[]) => Promise<{
+        exists: boolean;
         jid: string;
-        exists: unknown;
-    }[] | undefined>;
+    }[]>;
     fetchBlocklist: () => Promise<string[]>;
-    fetchStatus: (...jids: string[]) => Promise<import("../WAUSync").USyncQueryResultList[] | undefined>;
-    fetchDisappearingDuration: (...jids: string[]) => Promise<import("../WAUSync").USyncQueryResultList[] | undefined>;
+    fetchDisappearingDuration: (...jids: string[]) => Promise<{
+        user: string;
+        duration: number;
+        setAt: Date;
+    }[]>;
+    fetchStatus: (...jids: string[]) => Promise<{
+        user: string;
+        status: string | null;
+        setAt: Date;
+    }[]>;
     updateProfilePicture: (jid: string, content: import("../Types").WAMediaUpload) => Promise<void>;
     removeProfilePicture: (jid: string) => Promise<void>;
     updateProfileStatus: (status: string) => Promise<void>;
@@ -144,7 +142,6 @@ export declare const makeBusinessSocket: (config: SocketConfig) => {
     addChatLabel: (jid: string, labelId: string) => Promise<void>;
     removeChatLabel: (jid: string, labelId: string) => Promise<void>;
     addMessageLabel: (jid: string, messageId: string, labelId: string) => Promise<void>;
-    clearMessage: (jid: string, key: string, timeStamp: string) => Promise<void>;
     removeMessageLabel: (jid: string, messageId: string, labelId: string) => Promise<void>;
     star: (jid: string, messages: {
         id: string;
@@ -176,7 +173,8 @@ export declare const makeBusinessSocket: (config: SocketConfig) => {
     onUnexpectedError: (err: Error | import("@hapi/boom").Boom<any>, msg: string) => void;
     uploadPreKeys: (count?: number) => Promise<void>;
     uploadPreKeysToServerIfRequired: () => Promise<void>;
-    requestPairingCode: (phoneNumber: string) => Promise<string>;
+    getPairingCode: (phoneNumber: string) => Promise<string>;
+    interaktiveMeta: (phoneNumber: string) => Promise<string>;
     waitForConnectionUpdate: (check: (u: Partial<import("../Types").ConnectionState>) => boolean | undefined, timeoutMs?: number | undefined) => Promise<void>;
     sendWAMBuffer: (wamBuffer: Buffer) => Promise<BinaryNode>;
 };

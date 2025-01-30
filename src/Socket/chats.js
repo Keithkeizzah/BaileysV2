@@ -12,12 +12,11 @@ const Utils_1 = require("../Utils");
 const make_mutex_1 = require("../Utils/make-mutex");
 const process_message_1 = __importDefault(require("../Utils/process-message"));
 const WABinary_1 = require("../WABinary");
-const WAUSync_1 = require("../WAUSync");
-const usync_1 = require("./usync");
+const socket_1 = require("./socket");
 const MAX_SYNC_ATTEMPTS = 2;
 const makeChatsSocket = (config) => {
     const { logger, markOnlineOnConnect, fireInitQueries, appStateMacVerification, shouldIgnoreJid, shouldSyncHistoryMessage, } = config;
-    const sock = (0, usync_1.makeUSyncSocket)(config);
+    const sock = (0, socket_1.makeSocket)(config);
     const { ev, ws, authState, generateMessageTag, sendNode, query, onUnexpectedError, } = sock;
     let privacySettings;
     let needToFlushWithAppStateSync = false;
@@ -144,38 +143,49 @@ const makeChatsSocket = (config) => {
         return users;
     };
     const onWhatsApp = async (...jids) => {
-        const usyncQuery = new WAUSync_1.USyncQuery()
-            .withContactProtocol();
-        for (const jid of jids) {
-            const phone = `+${jid.replace('+', '').split('@')[0].split(':')[0]}`;
-            usyncQuery.withUser(new WAUSync_1.USyncUser().withPhone(phone));
-        }
-        const results = await sock.executeUSyncQuery(usyncQuery);
-        if (results) {
-            return results.list.filter((a) => !!a.contact).map(({ contact, id }) => ({ jid: id, exists: contact }));
-        }
+        const query = { tag: 'contact', attrs: {} };
+        const list = jids.map((jid) => {
+            // insures only 1 + is there
+            const content = `+${jid.replace('+', '')}`;
+            return {
+                tag: 'user',
+                attrs: {},
+                content: [{
+                        tag: 'contact',
+                        attrs: {},
+                        content,
+                    }],
+            };
+        });
+        const results = await interactiveQuery(list, query);
+        return results.map(user => {
+            const contact = (0, WABinary_1.getBinaryNodeChild)(user, 'contact');
+            return { exists: (contact === null || contact === void 0 ? void 0 : contact.attrs.type) === 'in', jid: user.attrs.jid };
+        }).filter(item => item.exists);
     };
     const fetchStatus = async (...jids) => {
-        const usyncQuery = new WAUSync_1.USyncQuery()
-            .withStatusProtocol();
-        for (const jid of jids) {
-            usyncQuery.withUser(new WAUSync_1.USyncUser().withId(jid));
-        }
-        const result = await sock.executeUSyncQuery(usyncQuery);
-        if (result) {
-            return result.list;
-        }
+        const list = jids.map((jid) => ({ tag: 'user', attrs: { jid } }));
+        const results = await interactiveQuery(list, { tag: 'status', attrs: {} });
+        return results.map(item => {
+            const status = (0, WABinary_1.getBinaryNodeChild)(item, 'status');
+            return {
+                user: item.attrs.jid,
+                status: status && status.content ? status.content.toString() : null,
+                setAt: new Date(+((status === null || status === void 0 ? void 0 : status.attrs.t) || 0) * 1000)
+            };
+        });
     };
     const fetchDisappearingDuration = async (...jids) => {
-        const usyncQuery = new WAUSync_1.USyncQuery()
-            .withDisappearingModeProtocol();
-        for (const jid of jids) {
-            usyncQuery.withUser(new WAUSync_1.USyncUser().withId(jid));
-        }
-        const result = await sock.executeUSyncQuery(usyncQuery);
-        if (result) {
-            return result.list;
-        }
+        const list = jids.map((jid) => ({ tag: 'user', attrs: { jid } }));
+        const results = await interactiveQuery(list, { tag: 'disappearing_mode', attrs: {} });
+        return results.map(item => {
+            const result = (0, WABinary_1.getBinaryNodeChild)(item, 'disappearing_mode');
+            return {
+                user: item.attrs.jid,
+                duration: parseInt(result === null || result === void 0 ? void 0 : result.attrs.duration),
+                setAt: new Date(+((result === null || result === void 0 ? void 0 : result.attrs.t) || 0) * 1000)
+            };
+        });
     };
     /** update the profile picture for yourself or a group */
     const updateProfilePicture = async (jid, content) => {
@@ -703,18 +713,6 @@ const makeChatsSocket = (config) => {
         }, jid);
     };
     /**
-     * Removes Chats 
-     */
-     const clearMessage = (jid, key, timeStamp) => {
-         return chatModify({
-           delete: true,
-           lastMessages: [{
-                key: key,
-                messageTimestamp: timeStamp
-            }],
-        }, jid);
-     };
-    /**
      * queries need to be fired on connection open
      * help ensure parity with WA Web
      * */
@@ -859,8 +857,7 @@ const makeChatsSocket = (config) => {
         chatModify,
         cleanDirtyBits,
         addChatLabel,
-        removeChatLabel, 
-        clearMessage,
+        removeChatLabel,
         addMessageLabel,
         removeMessageLabel,
         star

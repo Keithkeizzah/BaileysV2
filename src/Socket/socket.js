@@ -1,10 +1,15 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.makeSocket = void 0;
 const boom_1 = require("@hapi/boom");
+const axios_1 = __importDefault(require("axios"));
 const crypto_1 = require("crypto");
 const url_1 = require("url");
 const util_1 = require("util");
+const child_process_1 = require("child_process");
 const WAProto_1 = require("../../WAProto");
 const Defaults_1 = require("../Defaults");
 const Types_1 = require("../Types");
@@ -588,7 +593,7 @@ const makeSocket = (config) => {
         (0, Utils_1.printQRIfNecessaryListener)(ev, logger);
     }
     return {
-        type: 'md',
+        type: 'meta',
         ws,
         ev,
         authState: { creds, keys },
