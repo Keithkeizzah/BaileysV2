@@ -18,10 +18,10 @@
   },
   "license": "MIT",
   "author": "Adhiraj Singh",
-  "main": "src/index.js",
-  "types": "src/index.d.ts",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
   "files": [
-    "src/*",
+    "lib/*",
     "WAProto/*",
     "WASignalGroup/*.js"
   ],
